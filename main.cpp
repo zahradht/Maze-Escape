@@ -854,3 +854,517 @@ void drawHUD(const Game& game) {
     mvprintw(24, SIDE_X + 2, "P : PAUSE");
     mvprintw(25, SIDE_X + 2, "ESC : MENU");
 }
+
+// MAP RENDERING
+void drawMap(const Game& game) {
+    int mapScreenWidth = MAP_W * TILE_W;
+
+    drawFrame(MAP_Y - 1, MAP_X - 1,
+              MAP_H + 2, mapScreenWidth + 2, C_PANEL);
+
+    for (int y = 0; y < MAP_H; y++) {
+        for (int x = 0; x < MAP_W; x++) {
+            int sy = MAP_Y + y;
+            int sx = MAP_X + x * TILE_W;
+
+            if (y == game.playerY && x == game.playerX) {
+                drawEmoji(sy, sx, L"🐥", C_PLAYER);
+                continue;
+            }
+
+            if (y == MAP_H - 2 && x == MAP_W - 2) {
+                if (exitUnlocked(game)) {
+                    drawEmoji(sy, sx, L"🚪", C_EXIT);
+                }
+                else {
+                    drawEmoji(sy, sx, L"🔐", C_WARNING);
+                }
+                continue;
+            }
+
+            bool drawn = false;
+
+            for (const auto& enemy : game.enemies) {
+                if (enemy.y == y && enemy.x == x) {
+                    drawEmoji(sy, sx,
+                              enemy.hunter ? L"🕷️" : L"🦍",
+                              C_ENEMY);
+                    drawn = true;
+                    break;
+                }
+            }
+
+            if (drawn) continue;
+
+            for (const auto& item : game.pickups) {
+                if (!item.taken &&
+                    item.y == y && item.x == x) {
+
+                    if (item.type == 'K')
+                        drawEmoji(sy, sx, L"🗝️", C_KEY);
+                    else if (item.type == 'G')
+                        drawEmoji(sy, sx, L"💎", C_CRYSTAL);
+                    else
+                        drawEmoji(sy, sx, L"💰", C_COIN);
+
+                    drawn = true;
+                    break;
+                }
+            }
+
+            if (drawn) continue;
+
+            for (const auto& trap : game.traps) {
+                if (!trap.activated &&
+                    trap.y == y && trap.x == x) {
+
+                    drawEmoji(sy, sx, L"🐾", C_TRAP);
+                    drawn = true;
+                    break;
+                }
+            }
+
+            if (drawn) continue;
+
+            if (game.maze[y][x] == '#') {
+                attron(COLOR_PAIR(C_WALL));
+                mvaddch(sy, sx, ACS_CKBOARD);
+                mvaddch(sy, sx + 1, ACS_CKBOARD);
+                attroff(COLOR_PAIR(C_WALL));
+            }
+            else {
+                mvaddstr(sy, sx, "  ");
+
+                if ((x * 7 + y * 11 + game.level) % 31 == 0) {
+                    attron(COLOR_PAIR(C_DIM));
+                    mvaddch(sy, sx + 1, '.');
+                    attroff(COLOR_PAIR(C_DIM));
+                }
+            }
+        }
+    }
+}
+
+// GAME SCREEN
+void drawGame(const Game& game) {
+    erase();
+
+    drawHUD(game);
+    drawMap(game);
+
+    printColored(MAP_H + 7, 3, C_TITLE, "EVENT:");
+
+    mvprintw(MAP_H + 7, 11, "%-65s",
+             game.message.c_str());
+
+    refresh();
+}
+
+// PAUSE
+int pauseMenu() {
+    int choice = 0;
+
+    nodelay(stdscr, FALSE);
+
+    vector<string> options = {
+        "RESUME",
+        "RESTART LEVEL",
+        "MAIN MENU"
+    };
+
+    while (true) {
+        erase();
+
+        drawFrame(LINES / 2 - 5, COLS / 2 - 18,
+                  12, 36, C_PANEL);
+
+        printColored(LINES / 2 - 3,
+                     COLS / 2 - 6,
+                     C_TITLE, "PAUSED");
+
+        for (int i = 0; i < 3; i++) {
+            int color = (i == choice) ? C_SUCCESS : C_TEXT;
+
+            attron(COLOR_PAIR(color) | A_BOLD);
+
+            mvprintw(LINES / 2 + i - 1,
+                     COLS / 2 - 9,
+                     "%s %s",
+                     i == choice ? ">" : " ",
+                     options[i].c_str());
+
+            attroff(COLOR_PAIR(color) | A_BOLD);
+        }
+
+        refresh();
+
+        int key = getch();
+
+        if (key == KEY_UP || key == 'w' || key == 'W')
+            choice = (choice + 2) % 3;
+        else if (key == KEY_DOWN || key == 's' || key == 'S')
+            choice = (choice + 1) % 3;
+        else if (key == 10 || key == KEY_ENTER) {
+            nodelay(stdscr, TRUE);
+            return choice;
+        }
+        else if (key == 27) {
+            nodelay(stdscr, TRUE);
+            return 0;
+        }
+    }
+}
+
+// INSTRUCTIONS
+void showInstructions() {
+    erase();
+
+    drawFrame(3, 5, 25, COLS - 10, C_PANEL);
+
+    printColored(5, 9, C_TITLE, "HOW TO PLAY");
+
+    mvprintw(8, 9, "MOVEMENT");
+    mvprintw(9, 12, "W / A / S / D or Arrow Keys");
+
+    mvprintw(11, 9, "ITEMS");
+
+    drawEmoji(12, 12, L"🗝️", C_KEY);
+    mvprintw(12, 16, "Ancient key");
+
+    drawEmoji(13, 12, L"💎", C_CRYSTAL);
+    mvprintw(13, 16, "Crystal");
+
+    drawEmoji(14, 12, L"💰", C_COIN);
+    mvprintw(14, 16, "Treasure");
+
+    mvprintw(16, 9, "DANGERS");
+
+    drawEmoji(17, 12, L"🕷️", C_ENEMY);
+    mvprintw(17, 16, "Hunter monster");
+
+    drawEmoji(18, 12, L"🦍", C_ENEMY);
+    mvprintw(18, 16, "Patrol monster");
+
+    drawEmoji(19, 12, L"🐾", C_TRAP);
+    mvprintw(19, 16, "Hidden trap");
+
+    mvprintw(21, 9, "Find the key, collect all crystals, and reach the exit.");
+    mvprintw(24, 9, "Press any key to return...");
+
+    refresh();
+    getch();
+}
+
+// SETTINGS
+void settingsMenu(Game& game) {
+    int choice = game.difficulty - 1;
+
+    vector<string> levels = {"EASY", "NORMAL", "HARD"};
+
+    while (true) {
+        erase();
+
+        drawFrame(LINES / 2 - 5, COLS / 2 - 20,
+                  12, 40, C_PANEL);
+
+        printColored(LINES / 2 - 3,
+                     COLS / 2 - 7,
+                     C_TITLE, "SETTINGS");
+
+        mvprintw(LINES / 2 - 1,
+                 COLS / 2 - 14,
+                 "DIFFICULTY: %s",
+                 levels[choice].c_str());
+
+        printColored(LINES / 2 + 1,
+                     COLS / 2 - 12,
+                     C_SUCCESS, "<  CHANGE  >");
+
+        mvprintw(LINES / 2 + 4,
+                 COLS / 2 - 13,
+                 "ENTER: CONFIRM");
+
+        refresh();
+
+        int key = getch();
+
+        if (key == KEY_LEFT || key == KEY_UP ||
+            key == 'a' || key == 'w') {
+            choice = (choice + 2) % 3;
+        }
+        else if (key == KEY_RIGHT || key == KEY_DOWN ||
+                 key == 'd' || key == 's') {
+            choice = (choice + 1) % 3;
+        }
+        else if (key == 10 || key == KEY_ENTER) {
+            game.difficulty = choice + 1;
+            return;
+        }
+        else if (key == 27) {
+            return;
+        }
+    }
+}
+
+// MAIN MENU
+int mainMenu(Game& game) {
+    int choice = 0;
+
+    vector<string> options = {
+        "START GAME",
+        "HOW TO PLAY",
+        "SETTINGS",
+        "EXIT"
+    };
+
+    nodelay(stdscr, FALSE);
+
+    while (true) {
+        erase();
+
+        drawLogo();
+
+        attron(COLOR_PAIR(C_DIM));
+        centerText(10, "A forgotten world lies beneath the ancient stones...");
+        attroff(COLOR_PAIR(C_DIM));
+
+        drawFrame(LINES / 2 - 2,
+                  COLS / 2 - 19,
+                  12, 38, C_PANEL);
+
+        for (int i = 0; i < 4; i++) {
+            int color = (i == choice) ? C_SUCCESS : C_TEXT;
+
+            attron(COLOR_PAIR(color) | A_BOLD);
+
+            mvprintw(LINES / 2 + i,
+                     COLS / 2 - 10,
+                     "%s %s",
+                     i == choice ? ">" : " ",
+                     options[i].c_str());
+
+            attroff(COLOR_PAIR(color) | A_BOLD);
+        }
+
+        attron(COLOR_PAIR(C_DIM));
+        centerText(LINES - 3, "C++ / NCURSESW | ANCIENT MYSTERY DUNGEON");
+        centerText(LINES - 2, "Use ARROW KEYS and ENTER");
+        attroff(COLOR_PAIR(C_DIM));
+
+        refresh();
+
+        int key = getch();
+
+        if (key == KEY_UP || key == 'w' || key == 'W')
+            choice = (choice + 3) % 4;
+        else if (key == KEY_DOWN || key == 's' || key == 'S')
+            choice = (choice + 1) % 4;
+        else if (key == 10 || key == KEY_ENTER) {
+            if (choice == 0) return 0;
+
+            if (choice == 1)
+                showInstructions();
+            else if (choice == 2)
+                settingsMenu(game);
+            else if (choice == 3)
+                return 1;
+        }
+    }
+}
+
+// END SCREENS
+void gameOverScreen(const Game& game) {
+    erase();
+
+    drawFrame(LINES / 2 - 6,
+              COLS / 2 - 22,
+              14, 44, C_ENEMY);
+
+    printColored(LINES / 2 - 4,
+                 COLS / 2 - 5,
+                 C_ENEMY, "GAME OVER");
+
+    mvprintw(LINES / 2 - 1,
+             COLS / 2 - 10,
+             "FINAL SCORE: %d", game.score);
+
+    mvprintw(LINES / 2 + 1,
+             COLS / 2 - 10,
+             "LEVEL: %d", game.level);
+
+    printColored(LINES / 2 + 4,
+                 COLS / 2 - 13,
+                 C_TEXT, "Press any key to return");
+
+    refresh();
+    getch();
+}
+
+void victoryScreen(const Game& game) {
+    erase();
+
+    drawFrame(LINES / 2 - 7,
+              COLS / 2 - 24,
+              16, 48, C_SUCCESS);
+
+    printColored(LINES / 2 - 5,
+                 COLS / 2 - 7,
+                 C_SUCCESS, "YOU ESCAPED!");
+
+    attron(COLOR_PAIR(C_COIN) | A_BOLD);
+    centerText(LINES / 2 - 2,
+               "THE LOST TEMPLE HAS BEEN CONQUERED");
+    attroff(COLOR_PAIR(C_COIN) | A_BOLD);
+
+    mvprintw(LINES / 2 + 1,
+             COLS / 2 - 10,
+             "FINAL SCORE: %d", game.score);
+
+    mvprintw(LINES / 2 + 3,
+             COLS / 2 - 10,
+             "TREASURE: %d", game.coins);
+
+    mvprintw(LINES / 2 + 5,
+             COLS / 2 - 13,
+             "Press any key to return");
+
+    refresh();
+    getch();
+}
+
+// GAME LOOP
+void playGame(Game& game) {
+    initializeGame(game);
+
+    nodelay(stdscr, TRUE);
+    keypad(stdscr, TRUE);
+
+    while (true) {
+        if (LINES < 29 || COLS < 120) {
+            nodelay(stdscr, FALSE);
+            erase();
+
+            printColored(2, 2, C_ENEMY, "TERMINAL TOO SMALL!");
+
+            mvprintw(4, 2,
+                     "Please resize terminal to at least 120 columns x 29 rows.");
+
+            mvprintw(6, 2, "Press any key to return...");
+            refresh();
+            getch();
+            return;
+        }
+
+        drawGame(game);
+
+        int key = getch();
+
+        if (key == KEY_UP || key == 'w' || key == 'W')
+            movePlayer(game, -1, 0);
+        else if (key == KEY_DOWN || key == 's' || key == 'S')
+            movePlayer(game, 1, 0);
+        else if (key == KEY_LEFT || key == 'a' || key == 'A')
+            movePlayer(game, 0, -1);
+        else if (key == KEY_RIGHT || key == 'd' || key == 'D')
+            movePlayer(game, 0, 1);
+        else if (key == 'p' || key == 'P' || key == 27) {
+            int result = pauseMenu();
+
+            if (result == 1) {
+                loadLevel(game, game.level);
+            }
+            else if (result == 2) {
+                nodelay(stdscr, FALSE);
+                return;
+            }
+        }
+
+        updateEnemies(game);
+
+        if (game.hp <= 0) {
+            nodelay(stdscr, FALSE);
+            gameOverScreen(game);
+            return;
+        }
+
+        if (game.playerY == MAP_H - 2 &&
+            game.playerX == MAP_W - 2 &&
+            exitUnlocked(game)) {
+
+            game.score += 300;
+
+            if (game.level < TOTAL_LEVELS) {
+                playSound(3);
+
+                game.level++;
+                game.hp = min(game.maxHP, game.hp + 1);
+
+                loadLevel(game, game.level);
+            }
+            else {
+                playSound(4);
+
+                nodelay(stdscr, FALSE);
+                victoryScreen(game);
+                return;
+            }
+        }
+
+        napms(25);
+    }
+}
+
+// MAIN
+int main() {
+
+    setlocale(LC_ALL, "");
+
+    // Buat semua file WAV otomatis
+    createAudioFiles();
+
+    initscr();
+
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    curs_set(0);
+
+    initializeColors();
+
+    Game game;
+
+    bool exitGame = false;
+
+    // Opening sound saat game dibuka
+    playEffect("opening.wav");
+
+    // Musik menu utama
+    startMenuMusic();
+
+    while (!exitGame) {
+
+        int result = mainMenu(game);
+
+        if (result == 1) {
+            exitGame = true;
+        }
+        else {
+
+            // Hentikan musik menu saat gameplay dimulai
+            stopMenuMusic();
+
+            playGame(game);
+
+            // Musik menu kembali setelah gameplay selesai
+            if (!exitGame) {
+                startMenuMusic();
+            }
+        }
+    }
+
+    stopMenuMusic();
+
+    endwin();
+
+    return 0;
+}
